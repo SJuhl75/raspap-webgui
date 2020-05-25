@@ -73,6 +73,8 @@ function DisplayHostAPDConfig()
             $arrConfig[$arrLine[0]]=$arrLine[1];
         }
     };
+    // Get available channels
+    exec('iw list|sed -n "s/.*MHz \[\(.*\)\].*dBm.*/\1/p"|sort -n|uniq',$ChList);
 
     echo renderTemplate(
         "hostapd", compact(
@@ -86,7 +88,7 @@ function DisplayHostAPDConfig()
             "selectedHwMode",
             "arrSecurity",
             "arrEncType",
-            "arrHostapdConf"
+            "arrHostapdConf","ChList"
         )
     );
 }
@@ -108,7 +110,7 @@ function SaveHostAPDConfig($wpa_array, $enc_types, $modes, $interfaces, $status)
         return false;
     }
 
-    if (intval($_POST['channel']) < 1 || intval($_POST['channel']) > 48) {
+    if (intval($_POST['channel']) < 1 || intval($_POST['channel']) > 165) { //48
         error_log("Attempting to set channel to '".$_POST['channel']."'");
         return false;
     }

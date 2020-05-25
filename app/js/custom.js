@@ -265,7 +265,7 @@ function loadChannelSelect(selected) {
         var country_code = $('#cbxcountries').val();
         var channel_select = $('#cbxchannel');
         var data = json["wireless_regdb"];
-        var selectablechannels = Array.range(1,14);
+        var selectablechannels = Array.range(1,15);
 
         // Assign array of countries to valid frequencies (channels)
         var countries_2_4Ghz_max11ch = data["2_4GHz_max11ch"].countries;

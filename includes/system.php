@@ -47,11 +47,14 @@ function RPiVersion()
 
     $cpuinfo_array = '';
     exec('cat /proc/cpuinfo', $cpuinfo_array);
+//    foreach ($cpuinfo_array as $line) { $status->addMessage($line, 'info'); }
+
     $rev = trim(array_pop(explode(':', array_pop(preg_grep("/^Revision/", $cpuinfo_array)))));
     if (array_key_exists($rev, $revisions)) {
         return $revisions[$rev];
     } else {
-        return 'Unknown Pi';
+        exec('cat /proc/device-tree/model', $model);
+        return $model[0];
     }
 }
 
@@ -126,6 +129,9 @@ function DisplaySystem()
         'tr_TR.UTF-8' => 'Türkçe',
         'vi_VN.UTF-8' => 'Tiếng Việt (Vietnamese)'
     );
+    
+    exec('wget https://ipinfo.io/ip -qO -', $iparr);
+    $public_ip = $iparr[0];
 
-    echo renderTemplate("system", compact("arrLocales", "status", "system", "ServerPort"));
+    echo renderTemplate("system", compact("arrLocales", "status", "system", "ServerPort", "public_ip"));
 }

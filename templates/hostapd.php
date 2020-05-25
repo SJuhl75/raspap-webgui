@@ -70,14 +70,22 @@
                 SelectorOptions('hw_mode', $arr80211Standard, $selectedHwMode, 'cbxhwmode', 'loadChannelSelect', $hwModeDisabled); ?>
               </div>
             </div>
-            <div class="row">
+            <!-- div class="row">
               <div class="form-group col-md-6">
                 <label for="cbxchannel"><?php echo _("Channel"); ?></label>
                 <?php
                 $selectablechannels = Array();
                 SelectorOptions('channel', $selectablechannels, intval($arrConfig['channel']), 'cbxchannel'); ?>
               </div>
+            </div -->
+            <div class="row">
+              <div class="form-group col-md-6">
+                <label for="cbxchannel"><?php echo _("Channel"); ?></label>
+                <?php
+                SelectorOptions('channel', $ChList, intval($arrConfig['channel']), 'cbxchanne-l'); ?>
+              </div>
             </div>
+
           </div>
           <div class="tab-pane fade" id="security">
             <h4 class="mt-3"><?php echo _("Security settings"); ?></h4>

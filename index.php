@@ -1,4 +1,9 @@
-<?php
+<?php $xxy=77; 
+    global $lat, $lon, $epv;
+    $lat=51.505; $lon=-0.091; $epv=20;
+    $loca=array(
+    array("name"=>"Mark1","url"=>"https://en.wikipedia.org/wiki/Scotland","lat"=>"50.490671","lng"=>"-0.202646"),
+    array("name"=>"Mark2","url"=>"https://en.wikipedia.org/wiki/Scotland","lat"=>"50.390671","lng"=>"-0.102646"));
 
 /**
  * Raspbian WiFi Configuration Portal (RaspAP)
@@ -41,6 +46,9 @@ require_once 'includes/data_usage.php';
 require_once 'includes/about.php';
 require_once 'includes/openvpn.php';
 require_once 'includes/torproxy.php';
+require_once 'includes/vpnc.php';
+require_once 'includes/modem.php';
+require_once 'includes/gps.php';
 
 $output = $return = 0;
 $page = $_GET['page'];
@@ -85,6 +93,20 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
     <!-- Custom Fonts -->
     <link href="dist/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
 
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css"
+          integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ=="
+          crossorigin=""/>
+          
+    <!-- OpenLayers CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.3.1/css/ol.css" type="text/css">
+    <style>
+      .map {
+        height: 400px;
+        width: 100%;
+      }
+    </style>
+    
     <!-- Custom CSS -->
     <link href="<?php echo $theme_url; ?>" title="main" rel="stylesheet">
 
@@ -112,30 +134,51 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
       <ul class="navbar-nav sidebar sidebar-light d-none d-md-block accordion <?php echo (isset($toggleState)) ? $toggleState : null ; ?>" id="accordionSidebar">
         <!-- Sidebar - Brand -->
         <a class="sidebar-brand d-flex align-items-center justify-content-center" href="index.php?page=wlan0_info">
-          <div class="sidebar-brand-text ml-1">RaspAP</div>
+          <!-- div class="sidebar-brand-text ml-1">RaspAP</div-->
+                      <img src="app/img/rtk.jpg" class="navbar-logo" width="64" height="64">
+
         </a>
         <!-- Divider -->
         <hr class="sidebar-divider my-0">
         <div class="row">
           <div class="col-xs ml-3 sidebar-brand-icon">
-            <img src="app/img/raspAP-logo.svg" class="navbar-logo" width="64" height="64">
+            <!-- img src="app/img/raspAP-logo.svg" class="navbar-logo" width="64" height="64"-->
           </div>
           <div class="col-xs ml-2">
             <div class="ml-1">Status</div>
             <div class="info-item-xs"><span class="icon">
+              <i class="fas fa-circle <?php echo ($str_led); ?>"></i></span> <?php echo _("GNSS Service").' '. _($str_status); ?>
+            </div>
+            <div class="info-item-xs"><span class="icon">
+              <i class="fas fa-circle <?php echo ($pppd_led); ?>"></i></span> <?php echo _("GSM Uplink").' '. _($pppd_status); ?>
+            </div>
+            <div class="info-item-xs"><span class="icon">
               <i class="fas fa-circle <?php echo ($hostapd_led); ?>"></i></span> <?php echo _("Hotspot").' '. _($hostapd_status); ?>
             </div>
             <div class="info-item-xs"><span class="icon">
-              <i class="fas fa-circle <?php echo ($memused_led); ?>"></i></span> <?php echo _("Memory Use").': '. htmlspecialchars($memused, ENT_QUOTES); ?>%
+              <i class="fas fa-circle <?php echo ($batcap_led); ?>"></i></span> <?php echo _("Battery").': '. htmlspecialchars($batcap, ENT_QUOTES); ?>%
             </div>
             <div class="info-item-xs"><span class="icon">
               <i class="fas fa-circle <?php echo ($cputemp_led); ?>"></i></span> <?php echo _("CPU Temp").': '. htmlspecialchars($cputemp, ENT_QUOTES); ?>°C
+            </div>
+            <div class="info-item-xs"><span class="icon">
+              <i class="fas fa-circle <?php echo ($memused_led); ?>"></i></span> <?php echo _("Memory Use").': '. htmlspecialchars($memused, ENT_QUOTES); ?>%
             </div>
           </div>
         </div>
         <li class="nav-item">
           <a class="nav-link" href="index.php?page=wlan0_info"><i class="fas fa-tachometer-alt fa-fw mr-2"></i><span class="nav-label"><?php echo _("Dashboard"); ?></span></a>
         </li>
+          <?php if (RASPI_MODEM_ENABLED) : ?>
+        <li class="nav-item">
+          <a class="nav-link" href="index.php?page=modem_conf"><i class="fas fa-broadcast-tower fa-fw mr-2"></i><span class="nav-label"><?php echo _("Modem"); ?></a>
+        </li>
+          <?php endif; ?>
+          <?php if (RASPI_GPS_ENABLED) : ?>
+        <li class="nav-item">
+          <a class="nav-link" href="index.php?page=GPS"><i class="fas fa-map-marked-alt fa-fw mr-2"></i><span class="nav-label"><?php echo _("GNSS"); ?></a>
+        </li>
+          <?php endif; ?>
           <?php if (RASPI_HOTSPOT_ENABLED) : ?>
         <li class="nav-item">
           <a class="nav-link" href="index.php?page=hostapd_conf"><i class="far fa-dot-circle fa-fw mr-2"></i><span class="nav-label"><?php echo _("Hotspot"); ?></a>
@@ -164,6 +207,11 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
           <?php if (RASPI_OPENVPN_ENABLED) : ?>
         <li class="nav-item">
           <a class="nav-link" href="index.php?page=openvpn_conf"><i class="fas fa-key fa-fw mr-2"></i><span class="nav-label"><?php echo _("OpenVPN"); ?></a>
+        </li>
+          <?php endif; ?>
+          <?php if (RASPI_VPNC_ENABLED) : ?>
+        <li class="nav-item">
+          <a class="nav-link" href="index.php?page=vpnc_conf"><i class="fas fa-key fa-fw mr-2"></i><span class="nav-label"><?php echo _("IPSec VPN"); ?></a>
         </li>
           <?php endif; ?>
           <?php if (RASPI_TORPROXY_ENABLED) : ?>
@@ -213,6 +261,7 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
       <!-- Topbar -->
       <nav class="navbar navbar-expand navbar-light topbar mb-1 static-top">
         <!-- Sidebar Toggle (Topbar) -->
+        <div class="sidebar-brand-text ml-1">Mobile RTK Hotspot</div>
         <button id="sidebarToggleTopbar" class="btn btn-link d-md-none rounded-circle mr-3">
           <i class="fa fa-bars"></i>
         </button>
@@ -248,6 +297,9 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
         case "network_conf":
             DisplayNetworkingConfig();
             break;
+        case "modem_conf":
+            DisplayModemConfig();
+            break;
         case "hostapd_conf":
             DisplayHostAPDConfig();
             break;
@@ -256,6 +308,12 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
             break;
         case "openvpn_conf":
             DisplayOpenVPNConfig();
+            break;
+        case "vpnc_conf":
+            DisplayVPNConfig();
+            break;
+        case "GPS":
+            DisplayGPS();
             break;
         case "torproxy_conf":
             DisplayTorProxyConfig();
@@ -322,7 +380,7 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
     <!-- Link Quality Chart -->
     <script src="app/js/linkquality.js"></script>
     <?php }
-
+    
     // Load non default JS/ECMAScript in footer.
     foreach ($extraFooterScripts as $script) {
         echo '    <script type="text/javascript" src="' , $script['src'] , '"';
@@ -332,5 +390,119 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
         echo '></script>' , PHP_EOL;
     }
     ?>
+    
+    <!-- Make sure you put this AFTER Leaflets CSS -->
+    <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"
+    integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew=="
+    crossorigin=""></script>
+    
+    <!-- OpenLayers JS -->
+    <script src="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.3.1/build/ol.js"></script>
+
+    <script type="text/javascript">
+    var LonLat = ol.proj.fromLonLat([{$GLOBALS['lon']}, {$GLOBALS['lat']}])
+    var stroke = new ol.style.Stroke({color: 'red', width: 2});
+
+  var feature = new ol.Feature(new ol.geom.Point(LonLat))
+  var x = new ol.style.Style({
+    image: new ol.style.RegularShape({
+      stroke: stroke,
+      points: 4,
+      radius: 10,
+      radius2: 0,
+      angle: 0.785397   // Pi / 4
+      })
+  })
+  feature.setStyle(x)
+  var source = new ol.source.Vector({
+      features: [feature]
+  });
+
+  var vectorLayer = new ol.layer.Vector({
+    source: source
+  });
+
+  var map = new ol.Map({
+    target: 'mapol',
+    layers: [
+      new ol.layer.Tile({
+        source: new ol.source.OSM()
+      }),
+      vectorLayer
+    ],
+    view: new ol.View({
+      center: LonLat,
+      zoom: 6
+    })
+  });
+</script>
+
+
+    <script type="text/javascript">
+      var LonLat = ol.proj.fromLonLat([parseFloat(<?php echo $lon; ?>),parseFloat(<?php echo $lat; ?>)]);
+      var map = new ol.Map({
+        target: 'mapol',
+        layers: [
+          new ol.layer.Tile({
+            source: new ol.source.OSM()
+          })
+        ],
+        view: new ol.View({
+//          center: ol.proj.fromLonLat([37.41, 8.82]),
+          center: LonLat,
+          zoom: 4
+        })
+      });
+    </script>
+
+    <script type='text/javascript' src='app/js/markers.js'></script>
+
+<script type="text/javascript">
+/*    p1=51.505; p2=-0.091;*/
+    p1 = <?php echo $lat; ?>;
+    p2 = <?php echo $lon; ?>;
+    epv = parseFloat(<?php echo $epv; ?>);
+    var markers = <?php echo json_encode($loca); ?>;
+    
+    // Center Map on first entry
+    p1 = parseFloat(markers[0].lat);
+    p2 = parseFloat(markers[0].lng);
+    var mymap = L.map('mapid').setView([p1, p2], 20);
+
+    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw', {
+	maxZoom: 20,
+  	attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, ' +
+        '<a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, ' +
+	'Imagery ?? <a href="https://www.mapbox.com/">Mapbox</a>',
+	id: 'mapbox/streets-v11',
+	tileSize: 512,
+	zoomOffset: -1
+    }).addTo(mymap); 
+
+    for ( var i=0; i < markers.length; ++i )
+    { L.marker([markers[i].lat, markers[i].lng])
+       .bindPopup( '<a href="' + markers[i].url + '" target="_blank">' + markers[i].name + '</a>' )
+       .addTo(mymap);
+    }
+    
+    L.circle([p1, p2], epv, {
+		color: 'red',
+		fillColor: '#f03',
+		fillOpacity: 0.5
+	}).addTo(mymap).bindPopup("Estimated vertical error" )
+	.on('mouseover', function (e) {
+            this.openPopup();
+        }).on('mouseout', function (e) {
+            this.closePopup();
+        });
+
+/*	L.polygon([
+		[51.509, -0.08],
+		[51.503, -0.06],
+		[51.51, -0.047]
+	]).addTo(mymap).bindPopup("I am a polygon."); */
+    
+    </script>
+    
   </body>
 </html>
