@@ -5,3 +5,6 @@ yarn-error.log
 includes/config.php
 rootCA.pem
 *~
+proj4php/
+grid/
+rtksvr.csv

@@ -1,19 +1,42 @@
 <?php
+// Use a PSR-4 autoloader for the `proj4php` root namespace.
+include("proj4php/vendor/autoload.php");
+
 require_once 'includes/status_messages.php';
 require_once 'config.php';
+require_once 'includes/wgsecef.php';
+
+use proj4php\Proj4php;
+use proj4php\Proj;
+use proj4php\Point;
+
+// Initialise Proj4
+$proj4 = new Proj4php();
+$projWGS84  = new Proj('EPSG:4326', $proj4);
+$projUTM  = new Proj('EPSG:25832', $proj4);
+$projITRF  = new Proj('EPSG:4326', $proj4); // not working=4385,4896,4919
+
+// Create your projection
+//$proj4->addDef("EPSG:27700",'+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +datum=OSGB36 +units=m +no_defs');
+//$proj4->addDef("BRD","+proj=longlat +datum=WGS84 +no_defs +nadgrids=/var/www/html/grid/BWTA2017.gsb,./grid/BETA2007.gsb,null +to +proj=utm +ellps=GRS80 +zone=32 +nadgrids=@null -vvv -f %.3f");
+//$projBU = new Proj('BRD', $proj4);
+$projBU = new Proj("+proj=longlat +datum=WGS84 +no_defs +nadgrids=./grid/BWTA2017.gsb,./grid/BETA2007.gsb,null +to +proj=utm +ellps=GRS80 +zone=32 +nadgrids=@null -f %.1f", $proj4);
+
+// Kurzform ...? $result = $proj4->transform($projWGS84, $projUTM33N, new proj4phpPoint($long, $lat));
 
 /**
  * Manage GNSS configuration
  */
 
-function maidenhead ($latitude, $longitude) {
+// https://github.com/proj4php/proj4php
+
+function maidenhead (float $latitude, float $longitude) {
   /* 
     Converts WGS84 coordinates into the corresponding Maidenhead Locator
     Inputs:-
       $latitude
       $longitude
   */
-
   if ($longitude >= 180 || $longitude <= -180)	{ return "Longitude Value Incorrect"; }
   if ($latitude >= 90 || $latitude <= -90) 	{ return "Latitude Value Incorrect";  }
 
@@ -33,9 +56,16 @@ function maidenhead ($latitude, $longitude) {
   return $locator;
 }
 
+function strfl ($str) {
+    $pos = strrpos($str = strtr(trim(strval($str)), ',', '.'), '.');
+    return ($pos===false ? floatval($str) : floatval(str_replace('.', '', substr($str, 0, $pos)) . substr($str, $pos))); }
+
 function DisplayGPS()
 {
     global $loca, $lat, $lon, $epv;
+    global $proj4, $projWGS84, $projUTM, $projBU;
+//$projBU = new Proj('BRD', $proj4);
+
     $status = new StatusMessages();
 
     // RTKLib Stream Server running?
@@ -58,6 +88,19 @@ function DisplayGPS()
         $sdx=2*$rtkdata[6]; $sdy=2*$rtkdata[7]; $sdz=2*$rtkdata[8]; $sdxy=$rtkdata[9];	// 2 Sigma = 95,45% 
         // Calculation of R95 according to Novatel APN-029 GPS Position Accuracy Measures
         $R95=2.0789*(62*$sdy+56*$sdx);	// report centimeters
+        $wga=ecef2wga(array('x'=>$xecef,'y'=>$yecef,'z'=>$zecef));
+        $rtklat=$wga['lat']; $rtklon=$wga['lon'];
+        $pointSrc = new Point($rtklon, $rtklat, $wga['alt'], $projWGS84);
+        error_log("Source: " . $pointSrc->toShortString() . " in WGS84 <br>" . PHP_EOL,0);
+        // Transform the point between datums.
+        $UTMpoint = $proj4->transform($projUTM, $pointSrc);
+        $BUpoint  = $proj4->transform($projBU, $pointSrc);
+//        $ITRFpoint = $proj4->transform($projITRF, $pointSrc);
+        // error_log("DEBUG=" . $pointDest->toShortString());
+        $UTM=$UTMpoint->toArray(); 
+        $ITRF=$BUpoint->toArray();
+        $utme=str_replace(",",".",$UTM[0]); $utmn=str_replace(",",".",$UTM[1]); $utma=str_replace(",",".",$UTM[2]); 
+        $ITRFE=str_replace(",",".",$ITRF[0]); $ITRFN=str_replace(",",".",$ITRF[1]); $ITRFA=str_replace(",",".",$ITRF[2]); 
     } else { $rtkfix='down'; }
 
     $sock = @fsockopen(GPSDSERVER, GPSDPORT, $errno, $errstr, 2);
@@ -95,9 +138,12 @@ function DisplayGPS()
 
         $lat   = (float)$GPS['tpv'][0]['lat'];
         $lon   = (float)$GPS['tpv'][0]['lon'];
+
         $alt   = (float)$GPS['tpv'][0]['alt'];
         $epv   = (float)$GPS['tpv'][0]['epv']*2; // U-Blox returns 1-sigma = 68% ... to be comparable expand by f=2
         $hdop  = (float)$GPS['sky'][0]['hdop'];
+        $pdop  = (float)$GPS['sky'][0]['pdop'];
+        // $status->addMessage("PDOP=" . $pdop . " HDOP=" . $hdop, 'info');
         
         $fix = $GPS['tpv'][0];
         $sky = $GPS['sky'][0];
@@ -105,17 +151,74 @@ function DisplayGPS()
         $fixtype = array('Unknown' => 0, 'No Fix' => 1, '2D Fix' => 2, '3D Fix' => 3);
         $type = array_search($fix['mode'], $fixtype);
         $svcnt = count($sats);
-        $qth = maidenhead($lat,$lon);
+        $qth = maidenhead(strfl("{$lat}"),strfl("{$lon}"));
+        $rtklattat = $rtkstatus[0] == 0 ? "down" : "up";
 
         // $status->addMessage("lat=" . $lat . " lon=" . $lon . " alt=" . $alt . " hdop=" . $hdop . " sv=" . $svcnt . " qth=" . $qth , 'info');
-        $loca=array(array("name"=>"Continuously Operating Mobile Reference Station@" . $qth,
+        $loca=array('BASE'=>array("name"=>"Continuously Operating Mobile Reference Station@" . $qth,
                           "url"=>"http://sjuhl.de",
                           "lat"=>$lat,
-                          "lng"=>$lon),
-                    array("name"=>"KARL00DEU (EUREF Class A station)",
+                          "lng"=>$lon));
+        if ($rtkfix!='down') { $loca['RTK'] = array("name"=>"RTK Solution\r\n" . $rtklat . " " . $rtklon,
+                          "url"=>"http://sjuhl.de",
+                          "lat"=>$rtklat,
+                          "lng"=>$rtklon); }
+        $loca['EUREF']=array("name"=>"KARL00DEU (EUREF Class A station)",
                           "url"=>"http://epncb.oma.be/_networkdata/siteinfo4onestation.php?station=KARL00DEU",
                           "lat"=>"49.01124241",
-                          "lng"=>"8.41125530"));
+                          "lng"=>"8.41125530");
+        if ($rtkfix!='down') { $baseline=vincenty($loca['BASE']['lat'],$loca['BASE']['lng'],$loca['EUREF']['lat'],$loca['EUREF']['lng']); }
+        array_push($loca,array("name"=>"Geodätischer Referenzpunkt Zaberfeld Stausee Ehmetsklinge",
+                          "url"=>"https://www.landkreis-heilbronn.de/gnss-testpunkt-zaberfeld-pdf.2228.htm",
+                          "lat"=>"49.058346944",
+                          "lng"=>"8.9124975"),
+                    array("name"=>"P1 GNSS-Testfeld Karlsruhe-Rüppurr",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.9671889218",
+                          "lng"=>"8.39514373064"),
+                    array("name"=>"P2 GNSS-Testfeld Karlsruhe-Rüppurr",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.9671797718",
+                          "lng"=>"8.39419544687"),
+                    array("name"=>"P3 GNSS-Testfeld Karlsruhe-Rüppurr",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.9680035002",
+                          "lng"=>"8.39514991845"),
+                    array("name"=>"P4 GNSS-Testfeld Karlsruhe-Rüppurr",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.9674165619",
+                          "lng"=>"8.39439671914"),
+                    array("name"=>"Geodätischer Kontrollpunkt Bruchsal, Untergrombach",
+                          "url"=>"https://www.lgl-bw.de/unsere-themen/Geoinformation/Kontrollpunkte/kontrollpunkt-bruchsal-untergrombach/",
+                          "lat"=>"49.087903333",
+                          "lng"=>"8.560466667"),
+                    array("name"=>"Geodätischer Kontrollpunkt Mühlacker, Landesgartenschau",
+                          "url"=>"https://www.lgl-bw.de/unsere-themen/Geoinformation/Kontrollpunkte/kontrollpunkt-muehlacker-landesgartenschau/",
+                          "lat"=>"48.945014",
+                          "lng"=>"8.8412"),
+                    array("name"=>"P1 GNSS-Testfeld Vaihingen-Enz",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.936091097",
+                          "lng"=>"8.97893554063"),
+                    array("name"=>"P2 GNSS-Testfeld Vaihingen-Enz",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.9365679051",
+                          "lng"=>"8.97878388312"),
+                    array("name"=>"P3 GNSS-Testfeld Vaihingen-Enz",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.9365714984",
+                          "lng"=>"8.98043491473"),
+                    array("name"=>"P4 GNSS-Testfeld Vaihingen-Enz",
+                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
+                          "lat"=>"48.9366179324",
+                          "lng"=>"8.98303603333"),
+                    array("name"=>"Modellflieger Club Ölbronn-Dürrn",
+                          "url"=>"http://mfc-oelbronn-duerrn.de",
+                          "lat"=>"48.966389",
+                          "lng"=>"8.7505")
+                          );
+    $baseline=vincenty($loca['BASE']['lat'],$loca['BASE']['lng'],$loca['EUREF']['lat'],$loca['EUREF']['lng']);
+
 
     if (!RASPI_MONITOR_ENABLED) {
         if (isset($_POST['SaveOpenVPNSettings'])) {
@@ -126,13 +229,42 @@ function DisplayGPS()
                 $authPassword = strip_tags(trim($_POST['authPassword']));
             }
             $return = SaveOpenVPNConfig($status, $_FILES['customFile'], $authUser, $authPassword);
-        } elseif (isset($_POST['StartOpenVPN'])) {
-            $status->addMessage('Attempting to start OpenVPN', 'info');
-            exec('sudo /bin/systemctl start openvpn-client@client', $return);
-            exec('sudo /bin/systemctl enable openvpn-client@client', $return);
-            foreach ($return as $line) {
-                $status->addMessage($line, 'info');
-            }
+        } elseif (isset($_POST['StartMeas'])) {
+            $rtksock = @fsockopen('localhost',5005, $rerrno, $rerrstr, 2);
+            do {
+                $rtkresp = @fread($rtksock, 10000);
+                error_log("DEBUG=" . $rtkresp . PHP_EOL,0); 
+                if (!empty($rtkresp)) {
+                    $rtkdata = explode(";", $rtkresp);
+                    // foreach ($rtkdata as $rtkkey => $rtkvalue) { $status->addMessage("RTKdata[" . $rtkkey . "]=" . $rtkvalue, 'info'); }
+                    //%  GPST           x-ecef(m)      y-ecef(m)      z-ecef(m)   Q  ns   sdx(m)   sdy(m)   sdz(m)  sdxy(m)  sdyz(m)  sdzx(m) age(s)  ratio
+                    //2106 601309   4138451.7897    640011.7954   4795039.4922   2   5   3.7878   1.7982   3.4559   0.7144   0.7729   3.0019   0.99    0.0
+                    $xecef=$rtkdata[1]; $yecef=$rtkdata[2]; $zecef=$rtkdata[3];
+                    $rtkfix = array_search($rtkdata[4], array('RTK-FIX' => 1, 'FLOAT' => 2, 'DGPS' => 4, 'Single' => 5));
+                    $rsvcnt=$rtkdata[5];
+                    $sdx=2*$rtkdata[6]; $sdy=2*$rtkdata[7]; $sdz=2*$rtkdata[8]; $sdxy=$rtkdata[9];	// 2 Sigma = 95,45% 
+                    // Calculation of R95 according to Novatel APN-029 GPS Position Accuracy Measures
+                    $R95=2.0789*(62*$sdy+56*$sdx);	// report centimeters
+                    error_log("R95=" . $R95 . PHP_EOL,0);
+                } 
+            } while ($R95 > 1);	// So lange, bis kleiner als 1cm erreicht ...
+            $out=array(); $i=0; $arr=array(); do {
+                sleep(1);
+                $rtkresp = @fread($rtksock, 10000); 
+                if (!empty($rtkresp)) {
+                    $rtkdata = explode(";", $rtkresp);
+                    $xecef=$rtkdata[1]; $yecef=$rtkdata[2]; $zecef=$rtkdata[3];
+                    array_push($arr, array('x'=>$xecef,'y'=>$yecef,'z'=>$zecef));
+                    array_push($out, $xecef . " " . $yecef . " " . $zecef . "\r\n");
+                    $i=$i+1;
+            } } while ($i < 30);
+            @fclose($rtksock);
+            file_put_contents('/tmp/rawgeo.out', $out);
+            exec('cs2cs +proj=geocent +datum=WGS84 +no_defs +nadgrids=@./grid/BWTA2017.gsb,@./grid/BETA2007.gsb,null +to +proj=utm +ellps=GRS80 +zone=32 +nadgrids=@null -f %.4f < /tmp/rawgeo.out > /tmp/raw.out', $XX);
+            exec('awk -f mwsd.awk /tmp/raw.out',$rtko);
+            foreach ($rtko as $ro) { $status->addMessage($ro, 'info'); } 
+            $ITRFE=$rtko[0]; $ITRFN=$rtko[1]; $ITRFA=$rtko[2]; 
+
         } elseif (isset($_POST['StopOpenVPN'])) {
             $status->addMessage('Attempting to stop OpenVPN', 'info');
             exec('sudo /bin/systemctl stop openvpn-client@client', $return);
@@ -146,14 +278,6 @@ function DisplayGPS()
     exec('pidof rtkrcv | wc -l', $rtkstatus);
 
     $RTKStat = $rtkstatus[0] == 0 ? "down" : "up";
-    $auth = file(RASPI_OPENVPN_CLIENT_LOGIN, FILE_IGNORE_NEW_LINES);
-    $public_ip = $return[0];
-
-    // parse client auth credentials
-    if (!empty($auth)) {
-        $authUser = $auth[0];
-        $authPassword = $auth[1];
-    }
 
     echo renderTemplate(
         "gps", compact(
@@ -162,7 +286,8 @@ function DisplayGPS()
             "STRStat","RTKStat",
             "authUser",
             "authPassword","lat","lon","alt","type","qth","epv","svcnt",
-            "rtkfix","xecef","yecef","zecef","R95","rsvcnt","sdx","sdy","sdz"
+            "rtkfix","xecef","yecef","zecef","R95","rsvcnt","sdx","sdy","sdz","baseline",
+            "utmn","utme","utma","ITRFN","ITRFE","ITRFA"
         )
     );
 }

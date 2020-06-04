@@ -98,15 +98,6 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
           integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ=="
           crossorigin=""/>
           
-    <!-- OpenLayers CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.3.1/css/ol.css" type="text/css">
-    <style>
-      .map {
-        height: 400px;
-        width: 100%;
-      }
-    </style>
-    
     <!-- Custom CSS -->
     <link href="<?php echo $theme_url; ?>" title="main" rel="stylesheet">
 
@@ -396,77 +387,142 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
     integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew=="
     crossorigin=""></script>
     
-    <!-- OpenLayers JS -->
-    <script src="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.3.1/build/ol.js"></script>
+    <!-- Load plotly.js into the DOM -->
+    <script src='https://cdn.plot.ly/plotly-latest.min.js'></script>
 
+    <!-- Plotly.js 3D Point clustering -->
     <script type="text/javascript">
-    var LonLat = ol.proj.fromLonLat([{$GLOBALS['lon']}, {$GLOBALS['lat']}])
-    var stroke = new ol.style.Stroke({color: 'red', width: 2});
+    // NOTE USE https://developer.mozilla.org/de/docs/Web/JavaScript/Reference/Global_Objects/Array/map
+    
+        // NOTE WORKINT Static Ratio and satellite count, limited to three hours
+        // function unpack(rows, key) { return rows.map(function(row) { return row[key]; }); }
+        Plotly.d3.csv('rtksvr.csv', function(err, rows) {
+          function unpack(rows, key) { var DataTime = Date.parse(rows[rows.length-1]['Timestamp']);
+                                       return rows.map(function(row) { var RowTime = Date.parse(row['Timestamp']); 
+                                                                       if ((DataTime - RowTime) < 3*3600000 ) return row[key]; 
+                                                                       }).filter(Boolean);
+                                       }
+          var data = [{ x: unpack(rows, 'Timestamp'),
+                        y: unpack(rows, 'NS'),
+                        type: 'scatter',
+                        line: { color: 'rgb(23, 190, 207)', width: 0.8 },
+                        opacity: 0.3, name: 'Sat count', fill: 'tozeroy' },
+                        { x: unpack(rows, 'Timestamp'),
+                        y: unpack(rows, 'RATIO'),
+                        type: 'scatter',
+                        line: { color: 'blue', width: 2 },
+                        opacity: 1.0, name: 'Ratio', yaxis: 'y2' }];
+          
+          var layout = {autosize: true, height: 350, margin: {l: 50, t: 60, b:20 },
+                      title: {text: 'Ratio factor of ambiguity validation and number of satellites used',
+                      font: { size: 20, color: 'blue' }, xref: 'container', x: 0.0, xanchor: 'left', yref: 'container', y: 0.975, yanchor: 'top' },
+                      xaxis: { type: 'date', tickformat: "%X", automargin: true,
+                               rangeselector: {buttons: [{ count: 1,  label: '1d',  step: 'day', stepmode: 'backward' },
+                                                         { count: 10, label: '10d', step: 'day', stepmode: 'backward' },
+                                                         { step: 'all'} ]}, },
+                      yaxis: { title: 'Sat count   ', type: 'linear', zeroline: false, side: 'right', rangemode: 'tozero', automargin: true },
+                      yaxis2: { title: 'Ratio', yanchor: 'top', type: 'log', zeroline: false, side: 'left', overlaying: 'y', automargin: true } };
+          
+          Plotly.react('myDiv', data, layout); });
 
-  var feature = new ol.Feature(new ol.geom.Point(LonLat))
-  var x = new ol.style.Style({
-    image: new ol.style.RegularShape({
-      stroke: stroke,
-      points: 4,
-      radius: 10,
-      radius2: 0,
-      angle: 0.785397   // Pi / 4
-      })
-  })
-  feature.setStyle(x)
-  var source = new ol.source.Vector({
-      features: [feature]
-  });
+        // NOTE time-series 
+//        function rand() { return Math.random(); }
+        var timespan=20;
+        Plotly.d3.csv('rtksvr.csv', function(err, rows) {
+          function unpack(rows, key) { var DataTime = Date.parse(rows[rows.length-1]['Timestamp']);
+                                       return rows.map(function(row) { var RowTime = Date.parse(row['Timestamp']); 
+                                                                       if ((DataTime - RowTime) < timespan/60*3600000 ) return row[key]; 
+                                                                       }).filter(Boolean);
+                                       }
+          var data = [{ x: unpack(rows, 'Timestamp'),
+                        y: unpack(rows, 'R95') },
+                      { x: unpack(rows, 'Timestamp'),
+                        y: unpack(rows, 'RATIO') } ];
 
-  var vectorLayer = new ol.layer.Vector({
-    source: source
-  });
+          var layout = {autosize: true, height: 350,
+                        title: 'R95 and PDOP',
+                        xaxis: { type: 'date', tickformat: '%X' },
+                        yaxis: { type: 'linear', zeroline: false, rangemode: 'tozero' },
+                        yaxis2: { title: 'R95', type: 'linear', zeroline: false, side: 'left', rangemode: 'tozero', overlaying: 'y' }
+                        };
+          Plotly.newPlot('Plot2', data, layout); });
 
-  var map = new ol.Map({
-    target: 'mapol',
-    layers: [
-      new ol.layer.Tile({
-        source: new ol.source.OSM()
-      }),
-      vectorLayer
-    ],
-    view: new ol.View({
-      center: LonLat,
-      zoom: 6
-    })
-  });
-</script>
+        var cnt = 0;
+        var interval = setInterval(function() {
+            Plotly.d3.csv('rtksvr.csv', function(data) { processData(data) } );
+            function processData(allRows) {
+                var R95    = allRows[allRows.length-1]['R95'];
+                var PDOP   = allRows[allRows.length-1]['RATIO']; 
+                var time   = new Date(Date.parse(allRows[allRows.length-1]['Timestamp'])); 
+                var update = { x: [[time],[time]], y: [[R95],[PDOP]] }
+                var olderTime  = time.setMinutes(time.getMinutes() - 0.5*timespan);
+                var futureTime = time.setMinutes(time.getMinutes() + 0.5*timespan);
+                var minuteView = { xaxis: { range: [olderTime,futureTime] } }
+                Plotly.relayout('Plot2', minuteView);
+                Plotly.extendTraces('Plot2', update, [0,1]);
+                if(++cnt === 500) clearInterval(interval) // nach 500x ist schluss
+            }
+        } , 1000);
+
+/*        var data = [{ x: [time], y: [rand], 
+                      mode: 'lines', line: {color: '#80CAF6'} },
+                    { x: [time], y: [rand], 
+                      mode: 'lines', line: {color: 'red'    } } ]*/
 
 
-    <script type="text/javascript">
-      var LonLat = ol.proj.fromLonLat([parseFloat(<?php echo $lon; ?>),parseFloat(<?php echo $lat; ?>)]);
-      var map = new ol.Map({
-        target: 'mapol',
-        layers: [
-          new ol.layer.Tile({
-            source: new ol.source.OSM()
-          })
-        ],
-        view: new ol.View({
-//          center: ol.proj.fromLonLat([37.41, 8.82]),
-          center: LonLat,
-          zoom: 4
-        })
-      });
+
+/* NOTE PROGRESS BAR
+  var elem = document.getElementById("myBar");
+  var width = 0;
+  var id = setInterval(frame, 10);
+  function frame() {
+    if (width == 100) {
+      clearInterval(id);
+    } else {
+      width++;
+      elem.style.width = width + '%';
+    }
+  }
+} */        
+        // NOTE WORKING Random data time series
+/*        function getData() { return Math.random(); }  
+        Plotly.NewPlot('Chart2',[{ y: [getData()], type:'line'  },
+                                 { y: [getData()], type:'line'  } ]);
+        var cntP = 0;
+        var IV = setInterval(function(){
+                                Plotly.d3.csv('rtksvr.csv', function(data) { processData(data) } );
+                                function processData(allRows) {
+                                    var y1 = allRows[allRows.length]['R95']
+                                    var y2 = allRows[allRows.length]['PDOP']
+                                    Plotly.extendTraces('Chart2', {y: [[getData()], [getData()]]}, [0, 1])
+                                    if(++cntP === 100) { Plotly.react('Chart2',{ xaxis: { range: [cntP-100,cntP] } }); }
+                                    }
+                               },300); //15 */
+
+        // R95 and PDOP ... boring
+        /* var layout = {autosize: true, height: 350,
+                      title: 'R95 and PDOP',
+                      xaxis: { type: 'date' },
+                      yaxis: { title: 'PDOP', type: 'linear', zeroline: false, side: 'right', rangemode: 'tozero' },
+                      yaxis2: { title: 'R95', type: 'linear', zeroline: false, side: 'left', rangemode: 'tozero', overlaying: 'y' }
+                      };
+        Plotly.newPlot('Plot2', data, layout); }); */
     </script>
 
+    <!-- Import Markers from file -->
     <script type='text/javascript' src='app/js/markers.js'></script>
 
-<script type="text/javascript">
-/*    p1=51.505; p2=-0.091;*/
+    <!-- Leaflet -->
+    <script type="text/javascript">
+    /*    p1=51.505; p2=-0.091;*/
     p1 = <?php echo $lat; ?>;
     p2 = <?php echo $lon; ?>;
     epv = parseFloat(<?php echo $epv; ?>);
     var markers = <?php echo json_encode($loca); ?>;
     
     // Center Map on first entry
-    p1 = parseFloat(markers[0].lat);
-    p2 = parseFloat(markers[0].lng);
+    p1 = parseFloat(markers['BASE'].lat);
+    p2 = parseFloat(markers['BASE'].lng);
     var mymap = L.map('mapid').setView([p1, p2], 20);
 
     L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw', {
@@ -479,7 +535,8 @@ $bridgedEnabled = $arrHostapdConf['BridgedEnable'];
 	zoomOffset: -1
     }).addTo(mymap); 
 
-    for ( var i=0; i < markers.length; ++i )
+    /* for ( var i=0; i < markers.length; ++i ) */
+    for ( i in markers )
     { L.marker([markers[i].lat, markers[i].lng])
        .bindPopup( '<a href="' + markers[i].url + '" target="_blank">' + markers[i].name + '</a>' )
        .addTo(mymap);
