@@ -28,15 +28,9 @@ $projBU = new Proj("+proj=longlat +datum=WGS84 +no_defs +nadgrids=./grid/BWTA201
  * Manage GNSS configuration
  */
 
-// https://github.com/proj4php/proj4php
-
+/*  Converts WGS84 coordinates into the corresponding Maidenhead Locator
+    Inputs: $latitude, $longitude					  */
 function maidenhead (float $latitude, float $longitude) {
-  /* 
-    Converts WGS84 coordinates into the corresponding Maidenhead Locator
-    Inputs:-
-      $latitude
-      $longitude
-  */
   if ($longitude >= 180 || $longitude <= -180)	{ return "Longitude Value Incorrect"; }
   if ($latitude >= 90 || $latitude <= -90) 	{ return "Latitude Value Incorrect";  }
 
@@ -77,6 +71,31 @@ function DisplayGPS()
     //for($tries = 0; $tries < 10; $tries++) { $resp = @fread($sock, 10000); }
     $rtkresp = @fread($rtksock, 10000); @fclose($rtksock);
 
+/* array(10) {
+x  ["ECEFZ"]=> string(14) "  4795041.6335"
+  ["UTMR"]=>  float(484669.26826104)
+x  ["ECEFX"]=> string(14) "  4138451.4323"
+x  ["ECEFY"]=> string(14) "   640012.0515"
+  ["UTMH"]=>  float(5433911.755698)
+  ["UTMZ"]=>  string(3) "32U"
+  ["R95"]=>   float(0.03617286)
+  ["PDOP"]=>  float(0.0003)
+  ["TS"]=>    string(19) "2020-06-12 17:37:52"
+  ["ALT"]=>   float(246.12629555704) }
+
+RTK-FIX: ECEF X = 4138451,431±0,000m Y = 640012,051±0,000m Z = 4795041,627±0,000m
+ETRS89/UTM = 484742,669m / 5434027,704m / 246,120m
+ITRF = 484742,669m / 5434027,704m / 246,120m
+R95% = 0,0723cm ( 6 sats used)
+Baseline = 28.281,327m
+
+2020-06-12 18:59:36|0.0003-0.0003|6-6|100.0%|32U|484669.267|5433911.752|246.120|
+ */
+
+    $RTKJSON = file_get_contents("rtkpos.json");
+    $RTKV = json_decode($RTKJSON, true);
+    //$xecef=$RTKV['ECEFX']; $yecef=$RTKV['ECEFY'];  $zecef=$RTKV['ECEFZ'];
+
     if (!empty($rtkresp)) {
         $rtkdata = explode(";", $rtkresp);
         // foreach ($rtkdata as $rtkkey => $rtkvalue) { $status->addMessage("RTKdata[" . $rtkkey . "]=" . $rtkvalue, 'info'); }
@@ -90,17 +109,18 @@ function DisplayGPS()
         $R95=2.0789*(62*$sdy+56*$sdx);	// report centimeters
         $wga=ecef2wga(array('x'=>$xecef,'y'=>$yecef,'z'=>$zecef));
         $rtklat=$wga['lat']; $rtklon=$wga['lon'];
-        $pointSrc = new Point($rtklon, $rtklat, $wga['alt'], $projWGS84);
-        error_log("Source: " . $pointSrc->toShortString() . " in WGS84 <br>" . PHP_EOL,0);
+//        $pointSrc = new Point($rtklon, $rtklat, $wga['alt'], $projWGS84);
+//        error_log("Source: " . $pointSrc->toShortString() . " in WGS84 <br>" . PHP_EOL,0);
         // Transform the point between datums.
-        $UTMpoint = $proj4->transform($projUTM, $pointSrc);
-        $BUpoint  = $proj4->transform($projBU, $pointSrc);
+//        $UTMpoint = $proj4->transform($projUTM, $pointSrc);
+//        $BUpoint  = $proj4->transform($projBU, $pointSrc);
 //        $ITRFpoint = $proj4->transform($projITRF, $pointSrc);
         // error_log("DEBUG=" . $pointDest->toShortString());
-        $UTM=$UTMpoint->toArray(); 
-        $ITRF=$BUpoint->toArray();
-        $utme=str_replace(",",".",$UTM[0]); $utmn=str_replace(",",".",$UTM[1]); $utma=str_replace(",",".",$UTM[2]); 
-        $ITRFE=str_replace(",",".",$ITRF[0]); $ITRFN=str_replace(",",".",$ITRF[1]); $ITRFA=str_replace(",",".",$ITRF[2]); 
+//        $UTM=$UTMpoint->toArray(); 
+//        $ITRF=$BUpoint->toArray();
+//        $utme=str_replace(",",".",$UTM[0]); $utmn=str_replace(",",".",$UTM[1]); $utma=str_replace(",",".",$UTM[2]); 
+        $utme=$RTKV['UTMR']; $utmn=$RTKV['UTMH']; $utma=$wga['alt'];
+        $utmz=$RTKV['UTMZ']; $utmdat=$RTKV['TS']; 
     } else { $rtkfix='down'; }
 
     $sock = @fsockopen(GPSDSERVER, GPSDPORT, $errno, $errstr, 2);
@@ -168,57 +188,11 @@ function DisplayGPS()
                           "lat"=>"49.01124241",
                           "lng"=>"8.41125530");
         if ($rtkfix!='down') { $baseline=vincenty($loca['BASE']['lat'],$loca['BASE']['lng'],$loca['EUREF']['lat'],$loca['EUREF']['lng']); }
-        array_push($loca,array("name"=>"Geodätischer Referenzpunkt Zaberfeld Stausee Ehmetsklinge",
-                          "url"=>"https://www.landkreis-heilbronn.de/gnss-testpunkt-zaberfeld-pdf.2228.htm",
-                          "lat"=>"49.058346944",
-                          "lng"=>"8.9124975"),
-                    array("name"=>"P1 GNSS-Testfeld Karlsruhe-Rüppurr",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.9671889218",
-                          "lng"=>"8.39514373064"),
-                    array("name"=>"P2 GNSS-Testfeld Karlsruhe-Rüppurr",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.9671797718",
-                          "lng"=>"8.39419544687"),
-                    array("name"=>"P3 GNSS-Testfeld Karlsruhe-Rüppurr",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.9680035002",
-                          "lng"=>"8.39514991845"),
-                    array("name"=>"P4 GNSS-Testfeld Karlsruhe-Rüppurr",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.9674165619",
-                          "lng"=>"8.39439671914"),
-                    array("name"=>"Geodätischer Kontrollpunkt Bruchsal, Untergrombach",
-                          "url"=>"https://www.lgl-bw.de/unsere-themen/Geoinformation/Kontrollpunkte/kontrollpunkt-bruchsal-untergrombach/",
-                          "lat"=>"49.087903333",
-                          "lng"=>"8.560466667"),
-                    array("name"=>"Geodätischer Kontrollpunkt Mühlacker, Landesgartenschau",
-                          "url"=>"https://www.lgl-bw.de/unsere-themen/Geoinformation/Kontrollpunkte/kontrollpunkt-muehlacker-landesgartenschau/",
-                          "lat"=>"48.945014",
-                          "lng"=>"8.8412"),
-                    array("name"=>"P1 GNSS-Testfeld Vaihingen-Enz",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.936091097",
-                          "lng"=>"8.97893554063"),
-                    array("name"=>"P2 GNSS-Testfeld Vaihingen-Enz",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.9365679051",
-                          "lng"=>"8.97878388312"),
-                    array("name"=>"P3 GNSS-Testfeld Vaihingen-Enz",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.9365714984",
-                          "lng"=>"8.98043491473"),
-                    array("name"=>"P4 GNSS-Testfeld Vaihingen-Enz",
-                          "url"=>"http://www.sapos-bw.de/img/download/Handbuch-GNSS-Testfelder.pdf",
-                          "lat"=>"48.9366179324",
-                          "lng"=>"8.98303603333"),
-                    array("name"=>"Modellflieger Club Ölbronn-Dürrn",
-                          "url"=>"http://mfc-oelbronn-duerrn.de",
-                          "lat"=>"48.966389",
-                          "lng"=>"8.7505")
-                          );
-    $baseline=vincenty($loca['BASE']['lat'],$loca['BASE']['lng'],$loca['EUREF']['lat'],$loca['EUREF']['lng']);
 
+        // NOTE Load Custom GPS Locations
+        foreach (json_decode(file_get_contents("customgps.json"), true) as $entry) { array_push($loca,$entry); }
+
+    $baseline=vincenty($loca['BASE']['lat'],$loca['BASE']['lng'],$loca['EUREF']['lat'],$loca['EUREF']['lng']);
 
     if (!RASPI_MONITOR_ENABLED) {
         if (isset($_POST['SaveOpenVPNSettings'])) {
@@ -287,7 +261,7 @@ function DisplayGPS()
             "authUser",
             "authPassword","lat","lon","alt","type","qth","epv","svcnt",
             "rtkfix","xecef","yecef","zecef","R95","rsvcnt","sdx","sdy","sdz","baseline",
-            "utmn","utme","utma","ITRFN","ITRFE","ITRFA"
+            "utmn","utme","utma","utmz","utmdat"
         )
     );
 }
@@ -397,4 +371,4 @@ function SaveSomething($status, $file, $authUser, $authPassword)
         return $status;
     }
 }
-
+?>
