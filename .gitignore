@@ -8,3 +8,6 @@ rootCA.pem
 proj4php/
 grid/
 rtksvr.csv
+app/js/plotly.js
+rtkpos.json
+strobs.csv
